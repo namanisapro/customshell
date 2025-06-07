@@ -16,20 +16,15 @@ int main() {
     if (input == "exit 0") {
         std::exit(0);
     }
-    if(input.substr(0,5) == "type "){
-      string s=input.substr(5);
-      if(s=="invalid_command"){
-        cout<<"invalid_command: not found"<<endl;
-      }
-      else{
-        cout<<s<<" "<<"is a shell builtin"<<endl;
-      }
-    }
-
-
-      
-
-    if (input.substr(0, 5) == "echo ") {
+    
+    if (input.substr(0, 5) == "type ") {
+        std::string command = input.substr(5);
+        if (command == "echo" || command == "exit" || command == "type") {
+            std::cout << command << " is a shell builtin" << std::endl;
+        } else {
+            std::cout << command << ": not found" << std::endl;
+        }
+    } else if (input.substr(0, 5) == "echo ") {
         std::cout << input.substr(5) << std::endl;
     } else {
         std::cout << input << ": command not found" << std::endl;
