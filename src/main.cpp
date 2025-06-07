@@ -1,106 +1,124 @@
 #include <iostream>
 #include <string>
-#include <cstdlib>
 #include <vector>
 #include <sstream>
-#include <fstream>
+#include <cstdlib>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <sys/types.h>
+#include <cstring>
 
 using namespace std;
 
-vector<string> split_path(const string& path) {
-    vector<string> directories;
-    stringstream ss(path);
-    string dir;
-    while (getline(ss, dir, ':')) {
-        directories.push_back(dir);
-    }
-    return directories;
-}
-
-bool is_executable(const string& path) {
-    ifstream file(path);
-    return file.good();
-}
-
-string find_command_in_path(const string& command) {
-    const char* path_env = getenv("PATH");
-    if (!path_env) return "";
-
-    vector<string> path_dirs = split_path(path_env);
-    for (const auto& dir : path_dirs) {
-        string full_path = dir + "/" + command;
-        if (is_executable(full_path)) {
-            return full_path;
-        }
-    }
-    return "";
-}
-
-vector<string> split_command(const string& input) {
-    vector<string> args;
-    stringstream ss(input);
-    string arg;
-    while (ss >> arg) {
-        args.push_back(arg);
-    }
-    return args;
-}
-
 int main() {
-    string input;
     while (true) {
         cout << "$ ";
+        string input;
         getline(cin, input);
 
         if (input == "exit 0") {
             exit(0);
-        } else if (input.substr(0, 5) == "echo ") {
-            cout << input.substr(5) << endl;
-        } else if (input.substr(0, 5) == "type ") {
-            string command = input.substr(5);
-            if (command == "echo" || command == "exit" || command == "type") {
-                cout << command << " is a shell builtin" << endl;
-            } else {
-                string path = find_command_in_path(command);
-                if (!path.empty()) {
-                    cout << command << " is " << path << endl;
-                } else {
-                    cout << command << ": not found" << endl;
+        }
+
+        istringstream iss(input);
+        vector<string> args;
+        string arg;
+        while (iss >> arg) {
+            args.push_back(arg);
+        }
+
+        if (args.empty()) {
+            continue;
+        }
+
+        string command = args[0];
+
+        if (command == "echo") {
+            for (size_t i = 1; i < args.size(); ++i) {
+                cout << args[i];
+                if (i < args.size() - 1) {
+                    cout << " ";
                 }
             }
+            cout << endl;
+        } else if (command == "type") {
+            if (args.size() < 2) {
+                cout << "type: missing argument" << endl;
+                continue;
+            }
+            string target = args[1];
+            if (target == "echo" || target == "exit" || target == "type" || target == "pwd") {
+                cout << target << " is a shell builtin" << endl;
+            } else {
+                bool found = false;
+                char* path = getenv("PATH");
+                if (path != nullptr) {
+                    string pathStr(path);
+                    istringstream pathStream(pathStr);
+                    string dir;
+                    while (getline(pathStream, dir, ':')) {
+                        string fullPath = dir + "/" + target;
+                        if (access(fullPath.c_str(), X_OK) == 0) {
+                            cout << target << " is " << fullPath << endl;
+                            found = true;
+                            break;
+                        }
+                    }
+                }
+                if (!found) {
+                    cout << target << ": not found" << endl;
+                }
+            }
+        } else if (command == "pwd") {
+            char cwd[1024];
+            if (getcwd(cwd, sizeof(cwd)) != nullptr) {
+                cout << cwd << endl;
+            } else {
+                cout << "pwd: error getting current directory" << endl;
+            }
         } else {
-            // Handle external commands
-            vector<string> args = split_command(input);
-            if (args.empty()) continue;
-
-            string command_path = find_command_in_path(args[0]);
-            if (command_path.empty()) {
-                cout << args[0] << ": command not found" << endl;
+            // Try to execute as external command
+            char* path = getenv("PATH");
+            if (path == nullptr) {
+                cout << command << ": command not found" << endl;
                 continue;
             }
 
-            // Convert args to C-style array for execv
-            vector<char*> c_args;
-            for (const auto& arg : args) {
-                c_args.push_back(const_cast<char*>(arg.c_str()));
-            }
-            c_args.push_back(nullptr);
+            string pathStr(path);
+            istringstream pathStream(pathStr);
+            string dir;
+            bool found = false;
 
-            pid_t pid = fork();
-            if (pid < 0) {
-                cerr << "Failed to fork" << endl;
-            } else if (pid == 0) {
-                // Child process
-                execv(command_path.c_str(), c_args.data());
-                exit(1);  // Only reached if execv fails
-            } else {
-                // Parent process
-                int status;
-                waitpid(pid, &status, 0);
+            while (getline(pathStream, dir, ':')) {
+                string fullPath = dir + "/" + command;
+                if (access(fullPath.c_str(), X_OK) == 0) {
+                    found = true;
+                    pid_t pid = fork();
+                    if (pid == 0) {
+                        // Child process
+                        vector<char*> execArgs;
+                        execArgs.push_back(const_cast<char*>(fullPath.c_str()));
+                        for (size_t i = 1; i < args.size(); ++i) {
+                            execArgs.push_back(const_cast<char*>(args[i].c_str()));
+                        }
+                        execArgs.push_back(nullptr);
+                        execv(fullPath.c_str(), execArgs.data());
+                        cerr << "Error executing " << command << endl;
+                        exit(1);
+                    } else if (pid > 0) {
+                        // Parent process
+                        int status;
+                        waitpid(pid, &status, 0);
+                    }
+                    break;
+                }
+            }
+
+            if (!found) {
+                cout << command << ": command not found" << endl;
             }
         }
     }
+
     return 0;
 }
