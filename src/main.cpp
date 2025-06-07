@@ -27,16 +27,16 @@ std::vector<std::string> parseArgs(const std::string& input) {
         }
 
         if (c == '\\') {
-            if (in_double_quote) {
-                // In double quotes, only escape \, $, ", and newline
-                if (i + 1 < input.size() && 
-                    (input[i + 1] == '\\' || input[i + 1] == '$' || 
-                     input[i + 1] == '"' || input[i + 1] == '\n')) {
-                    escaped = true;
-                    continue;
-                }
+            if (in_single_quote) {
+                // In single quotes, backslash has no special meaning
+                current += c;
+            } else if (in_double_quote) {
+                // In double quotes, preserve backslash
+                current += c;
+            } else {
+                // In unquoted context, escape next character
+                escaped = true;
             }
-            current += c;
         } else if (c == '\'' && !in_double_quote) {
             in_single_quote = !in_single_quote;
         } else if (c == '"' && !in_single_quote) {
