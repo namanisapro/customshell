@@ -19,14 +19,20 @@ std::vector<std::string> parseArgs(const std::string& input) {
 
     for (size_t i = 0; i < input.size(); ++i) {
         char c = input[i];
-        
-        if (escaped) {
-            if (in_double_quote && (c == '\\' || c == '$' || c == '"' || c == '\n')) {
-                current += c;
+
+        // Special handling for backslash inside double quotes
+        if (in_double_quote && c == '\\') {
+            if (i + 1 < input.size() && (input[i + 1] == '\\' || input[i + 1] == '$' || input[i + 1] == '"' || input[i + 1] == '\n')) {
+                current += input[i + 1];
+                ++i;
             } else {
                 current += '\\';
-                current += c;
             }
+            continue;
+        }
+        
+        if (escaped) {
+            current += c;
             escaped = false;
             continue;
         }
@@ -36,14 +42,8 @@ std::vector<std::string> parseArgs(const std::string& input) {
                 // In single quotes, backslash is treated as a literal character
                 current += c;
             } else if (in_double_quote) {
-                // In double quotes, only escape \, $, ", and newline
-                if (i + 1 < input.size() && 
-                    (input[i + 1] == '\\' || input[i + 1] == '$' || 
-                     input[i + 1] == '"' || input[i + 1] == '\n')) {
-                    escaped = true;
-                } else {
-                    current += c;
-                }
+                // Already handled above
+                // (This branch will not be reached)
             } else {
                 // In unquoted context, escape next character
                 escaped = true;
@@ -52,14 +52,6 @@ std::vector<std::string> parseArgs(const std::string& input) {
             in_single_quote = !in_single_quote;
         } else if (c == '"' && !in_single_quote) {
             in_double_quote = !in_double_quote;
-        } else if (in_double_quote && c == '\\') {
-            if (i + 1 < input.size() && (input[i + 1] == '\\' || input[i + 1] == '$' || input[i + 1] == '"' || input[i + 1] == '\n')) {
-                current += input[i + 1];
-                ++i;
-            } else {
-                current += '\\';
-            }
-            continue;
         } else if (std::isspace(c) && !in_single_quote && !in_double_quote) {
             if (!current.empty()) {
                 args.push_back(current);
