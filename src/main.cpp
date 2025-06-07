@@ -14,15 +14,34 @@ std::vector<std::string> parseArgs(const std::string& input) {
     std::vector<std::string> args;
     std::string current;
     bool in_single_quote = false;
+    bool in_double_quote = false;
+    bool escaped = false;
+
     for (size_t i = 0; i < input.size(); ++i) {
         char c = input[i];
-        if (c == '\'') {
-            if (in_single_quote) {
-                in_single_quote = false;
-            } else {
-                in_single_quote = true;
+        
+        if (escaped) {
+            current += c;
+            escaped = false;
+            continue;
+        }
+
+        if (c == '\\') {
+            if (in_double_quote) {
+                // In double quotes, only escape \, $, ", and newline
+                if (i + 1 < input.size() && 
+                    (input[i + 1] == '\\' || input[i + 1] == '$' || 
+                     input[i + 1] == '"' || input[i + 1] == '\n')) {
+                    escaped = true;
+                    continue;
+                }
             }
-        } else if (std::isspace(c) && !in_single_quote) {
+            current += c;
+        } else if (c == '\'' && !in_double_quote) {
+            in_single_quote = !in_single_quote;
+        } else if (c == '"' && !in_single_quote) {
+            in_double_quote = !in_double_quote;
+        } else if (std::isspace(c) && !in_single_quote && !in_double_quote) {
             if (!current.empty()) {
                 args.push_back(current);
                 current.clear();
@@ -31,9 +50,11 @@ std::vector<std::string> parseArgs(const std::string& input) {
             current += c;
         }
     }
+
     if (!current.empty()) {
         args.push_back(current);
     }
+
     return args;
 }
 
