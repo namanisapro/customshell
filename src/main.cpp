@@ -12,27 +12,27 @@ using namespace std;
 
 std::vector<std::string> parseArgs(const std::string& input) {
     std::vector<std::string> args;
-    std::istringstream iss(input);
-    std::string token;
-    while (iss >> token) {
-        if (token.front() == '\'' && token.back() != '\'') {
-            // Start of a quoted argument
-            std::string quoted = token.substr(1); // Remove opening quote
-            while (iss >> token) {
-                if (token.back() == '\'') {
-                    quoted += " " + token.substr(0, token.size() - 1); // Remove closing quote
-                    break;
-                } else {
-                    quoted += " " + token;
-                }
+    std::string current;
+    bool in_single_quote = false;
+    for (size_t i = 0; i < input.size(); ++i) {
+        char c = input[i];
+        if (c == '\'') {
+            if (in_single_quote) {
+                in_single_quote = false;
+            } else {
+                in_single_quote = true;
             }
-            args.push_back(quoted);
-        } else if (token.front() == '\'' && token.back() == '\'' && token.size() > 1) {
-            // Single-token quoted argument
-            args.push_back(token.substr(1, token.size() - 2));
+        } else if (std::isspace(c) && !in_single_quote) {
+            if (!current.empty()) {
+                args.push_back(current);
+                current.clear();
+            }
         } else {
-            args.push_back(token);
+            current += c;
         }
+    }
+    if (!current.empty()) {
+        args.push_back(current);
     }
     return args;
 }
