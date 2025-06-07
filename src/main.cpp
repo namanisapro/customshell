@@ -13,30 +13,25 @@ using namespace std;
 std::vector<std::string> parseArgs(const std::string& input) {
     std::vector<std::string> args;
     std::istringstream iss(input);
-    std::string arg;
-    while (iss >> arg) {
-        if (arg[0] == '\'') {
-            // Handle single quotes
-            std::string quotedArg;
-            size_t start = arg.find('\'');
-            size_t end = arg.find('\'', start + 1);
-            if (end != std::string::npos) {
-                quotedArg = arg.substr(start + 1, end - start - 1);
-                args.push_back(quotedArg);
-            } else {
-                // If no closing quote is found, treat the rest of the input as part of the quoted string
-                quotedArg = arg.substr(start + 1);
-                std::string rest;
-                while (iss >> rest) {
-                    quotedArg += " " + rest;
-                    if (rest.find('\'') != std::string::npos) {
-                        break;
-                    }
+    std::string token;
+    while (iss >> token) {
+        if (token.front() == '\'' && token.back() != '\'') {
+            // Start of a quoted argument
+            std::string quoted = token.substr(1); // Remove opening quote
+            while (iss >> token) {
+                if (token.back() == '\'') {
+                    quoted += " " + token.substr(0, token.size() - 1); // Remove closing quote
+                    break;
+                } else {
+                    quoted += " " + token;
                 }
-                args.push_back(quotedArg);
             }
+            args.push_back(quoted);
+        } else if (token.front() == '\'' && token.back() == '\'' && token.size() > 1) {
+            // Single-token quoted argument
+            args.push_back(token.substr(1, token.size() - 2));
         } else {
-            args.push_back(arg);
+            args.push_back(token);
         }
     }
     return args;
