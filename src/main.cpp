@@ -97,7 +97,7 @@ int main() {
                     if (pid == 0) {
                         // Child process
                         vector<char*> execArgs;
-                        execArgs.push_back(const_cast<char*>(fullPath.c_str()));
+                        execArgs.push_back(const_cast<char*>(command.c_str()));
                         for (size_t i = 1; i < args.size(); ++i) {
                             execArgs.push_back(const_cast<char*>(args[i].c_str()));
                         }
