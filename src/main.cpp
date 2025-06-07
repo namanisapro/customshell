@@ -10,6 +10,27 @@
 
 using namespace std;
 
+std::vector<std::string> parseArgs(const std::string& input) {
+    std::vector<std::string> args;
+    std::istringstream iss(input);
+    std::string arg;
+    while (iss >> arg) {
+        if (arg[0] == '\'') {
+            // Handle single quotes
+            std::string quotedArg;
+            size_t start = arg.find('\'');
+            size_t end = arg.find('\'', start + 1);
+            if (end != std::string::npos) {
+                quotedArg = arg.substr(start + 1, end - start - 1);
+                args.push_back(quotedArg);
+            }
+        } else {
+            args.push_back(arg);
+        }
+    }
+    return args;
+}
+
 int main() {
     while (true) {
         cout << "$ ";
@@ -20,12 +41,7 @@ int main() {
             exit(0);
         }
 
-        istringstream iss(input);
-        vector<string> args;
-        string arg;
-        while (iss >> arg) {
-            args.push_back(arg);
-        }
+        vector<string> args = parseArgs(input);
 
         if (args.empty()) {
             continue;
@@ -117,7 +133,7 @@ int main() {
                     if (pid == 0) {
                         // Child process
                         vector<char*> execArgs;
-                        execArgs.push_back(const_cast<char*>(command.c_str()));
+                        execArgs.push_back(const_cast<char*>(command.c_str()));  // Use command name instead of full path
                         for (size_t i = 1; i < args.size(); ++i) {
                             execArgs.push_back(const_cast<char*>(args[i].c_str()));
                         }
