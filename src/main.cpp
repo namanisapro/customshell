@@ -82,8 +82,19 @@ int main() {
                 continue;
             }
             const std::string& dir = args[1];
-            if (chdir(dir.c_str()) != 0) {
-                std::cout << "cd: " << dir << ": No such file or directory" << std::endl;
+            if (dir == "~") {
+                char* home = getenv("HOME");
+                if (home == nullptr) {
+                    std::cout << "cd: HOME environment variable not set" << std::endl;
+                    continue;
+                }
+                if (chdir(home) != 0) {
+                    std::cout << "cd: " << home << ": No such file or directory" << std::endl;
+                }
+            } else {
+                if (chdir(dir.c_str()) != 0) {
+                    std::cout << "cd: " << dir << ": No such file or directory" << std::endl;
+                }
             }
         } else {
             // Try to execute as external command
