@@ -82,13 +82,8 @@ int main() {
                 continue;
             }
             const std::string& dir = args[1];
-            if (dir.size() > 0 && dir[0] == '/') {
-                if (chdir(dir.c_str()) != 0) {
-                    std::cout << "cd: " << dir << ": No such file or directory" << std::endl;
-                }
-            } else {
-                // Only handle absolute paths in this stage, do nothing for others
-                continue;
+            if (chdir(dir.c_str()) != 0) {
+                std::cout << "cd: " << dir << ": No such file or directory" << std::endl;
             }
         } else {
             // Try to execute as external command
