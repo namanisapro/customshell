@@ -76,6 +76,20 @@ int main() {
             } else {
                 cout << "pwd: error getting current directory" << endl;
             }
+        } else if (command == "cd") {
+            if (args.size() < 2) {
+                // No argument provided, do nothing for now (future stages may handle this)
+                continue;
+            }
+            const std::string& dir = args[1];
+            if (dir.size() > 0 && dir[0] == '/') {
+                if (chdir(dir.c_str()) != 0) {
+                    std::cout << "cd: " << dir << ": No such file or directory" << std::endl;
+                }
+            } else {
+                // Only handle absolute paths in this stage, do nothing for others
+                continue;
+            }
         } else {
             // Try to execute as external command
             char* path = getenv("PATH");
