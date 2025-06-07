@@ -4,7 +4,8 @@
 #include <vector>
 #include <sstream>
 #include <fstream>
-#include <windows.h>
+#include <unistd.h>
+#include <sys/wait.h>
 
 using namespace std;
 
@@ -47,23 +48,7 @@ vector<string> split_command(const string& input) {
     return args;
 }
 
-string build_command_line(const vector<string>& args) {
-    string cmd_line;
-    for (const auto& arg : args) {
-        if (cmd_line.empty()) {
-            cmd_line = arg;
-        } else {
-            cmd_line += " " + arg;
-        }
-    }
-    return cmd_line;
-}
-
 int main() {
-    // Flush after every std::cout / std:cerr
-    cout << unitbuf;
-    cerr << unitbuf;
-
     string input;
     while (true) {
         cout << "$ ";
@@ -96,33 +81,25 @@ int main() {
                 continue;
             }
 
-            // Create process
-            STARTUPINFO si = {sizeof(si)};
-            PROCESS_INFORMATION pi;
-            string cmd_line = build_command_line(args);
-
-            if (!CreateProcess(
-                NULL,                   // No module name (use command line)
-                (LPSTR)cmd_line.c_str(), // Command line
-                NULL,                   // Process handle not inheritable
-                NULL,                   // Thread handle not inheritable
-                FALSE,                  // Set handle inheritance to FALSE
-                0,                      // No creation flags
-                NULL,                   // Use parent's environment block
-                NULL,                   // Use parent's starting directory
-                &si,                    // Pointer to STARTUPINFO structure
-                &pi                     // Pointer to PROCESS_INFORMATION structure
-            )) {
-                cerr << "Failed to create process" << endl;
-                continue;
+            // Convert args to C-style array for execv
+            vector<char*> c_args;
+            for (const auto& arg : args) {
+                c_args.push_back(const_cast<char*>(arg.c_str()));
             }
+            c_args.push_back(nullptr);
 
-            // Wait for process to finish
-            WaitForSingleObject(pi.hProcess, INFINITE);
-
-            // Close process and thread handles
-            CloseHandle(pi.hProcess);
-            CloseHandle(pi.hThread);
+            pid_t pid = fork();
+            if (pid < 0) {
+                cerr << "Failed to fork" << endl;
+            } else if (pid == 0) {
+                // Child process
+                execv(command_path.c_str(), c_args.data());
+                exit(1);  // Only reached if execv fails
+            } else {
+                // Parent process
+                int status;
+                waitpid(pid, &status, 0);
+            }
         }
     }
     return 0;
