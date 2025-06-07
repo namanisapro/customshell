@@ -52,6 +52,14 @@ std::vector<std::string> parseArgs(const std::string& input) {
             in_single_quote = !in_single_quote;
         } else if (c == '"' && !in_single_quote) {
             in_double_quote = !in_double_quote;
+        } else if (in_double_quote && c == '\\') {
+            if (i + 1 < input.size() && (input[i + 1] == '\\' || input[i + 1] == '$' || input[i + 1] == '"' || input[i + 1] == '\n')) {
+                current += input[i + 1];
+                ++i;
+            } else {
+                current += '\\';
+            }
+            continue;
         } else if (std::isspace(c) && !in_single_quote && !in_double_quote) {
             if (!current.empty()) {
                 args.push_back(current);
