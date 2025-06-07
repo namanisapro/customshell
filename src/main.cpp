@@ -23,6 +23,17 @@ std::vector<std::string> parseArgs(const std::string& input) {
             if (end != std::string::npos) {
                 quotedArg = arg.substr(start + 1, end - start - 1);
                 args.push_back(quotedArg);
+            } else {
+                // If no closing quote is found, treat the rest of the input as part of the quoted string
+                quotedArg = arg.substr(start + 1);
+                std::string rest;
+                while (iss >> rest) {
+                    quotedArg += " " + rest;
+                    if (rest.find('\'') != std::string::npos) {
+                        break;
+                    }
+                }
+                args.push_back(quotedArg);
             }
         } else {
             args.push_back(arg);
