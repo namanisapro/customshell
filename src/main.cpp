@@ -13,6 +13,7 @@
 #include <readline/history.h>
 #include <dirent.h>
 #include <fstream>
+#include <map>
 
 using namespace std;
 
@@ -781,6 +782,37 @@ int main() {
                 (command.has_append_redirection && state.original_stdout == -1) ||
                 (command.has_stderr_redirection && state.original_stderr == -1) ||
                 (command.has_stderr_append_redirection && state.original_stderr == -1)) {
+                continue;
+            }
+            
+            // Static variable to track last appended history index
+            static std::map<std::string, int> last_appended_index;
+            
+            // Check for history -a <file> command
+            if (command.args.size() > 2 && command.args[1] == "-a") {
+                string filename = command.args[2];
+                ofstream file(filename, ios::app);
+                if (file.is_open()) {
+                    HIST_ENTRY **the_list = history_list();
+                    int start = 0;
+                    if (last_appended_index.count(filename)) {
+                        start = last_appended_index[filename];
+                    }
+                    int total_entries = 0;
+                    while (the_list && the_list[total_entries]) {
+                        total_entries++;
+                    }
+                    for (int i = start; i < total_entries; ++i) {
+                        file << the_list[i]->line << endl;
+                    }
+                    // Add trailing newline (empty line) if any new entries were written
+                    if (total_entries > start) {
+                        file << endl;
+                    }
+                    file.close();
+                    last_appended_index[filename] = total_entries;
+                }
+                restoreRedirection(state);
                 continue;
             }
             
