@@ -661,6 +661,12 @@ int main() {
     // Set up readline autocompletion
     rl_attempted_completion_function = builtin_completion_generator;
     
+    // Load history from HISTFILE environment variable if set
+    char* histfile = getenv("HISTFILE");
+    if (histfile != nullptr) {
+        read_history(histfile);
+    }
+    
     while (true) {
         char* input_line = readline("$ ");
         
