@@ -17,6 +17,9 @@ using namespace std;
 // Builtin commands for autocompletion
 const vector<string> BUILTIN_COMMANDS = {"echo", "exit", "type", "pwd", "cd"};
 
+// Forward declarations
+void executeCommand(const std::vector<std::string>& args);
+
 // Autocompletion function for readline
 char* builtin_completion(const char* text, int state) {
     static size_t list_index, len;
