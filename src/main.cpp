@@ -1,6 +1,7 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <array>
 #include <sstream>
 #include <cstdlib>
 #include <unistd.h>
