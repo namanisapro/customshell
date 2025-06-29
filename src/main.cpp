@@ -17,6 +17,65 @@ struct ParsedCommand {
     bool has_redirection;
 };
 
+std::vector<std::string> parseArgs(const std::string& input) {
+    std::vector<std::string> args;
+    std::string current;
+    bool in_single_quote = false;
+    bool in_double_quote = false;
+    bool escaped = false;
+
+    for (size_t i = 0; i < input.size(); ++i) {
+        char c = input[i];
+
+        // Special handling for backslash inside double quotes
+        if (in_double_quote && c == '\\') {
+            if (i + 1 < input.size() && (input[i + 1] == '\\' || input[i + 1] == '$' || input[i + 1] == '"' || input[i + 1] == '\n')) {
+                current += input[i + 1];
+                ++i;
+            } else {
+                current += '\\';
+            }
+            continue;
+        }
+        
+        if (escaped) {
+            current += c;
+            escaped = false;
+            continue;
+        }
+
+        if (c == '\\') {
+            if (in_single_quote) {
+                // In single quotes, backslash is treated as a literal character
+                current += c;
+            } else if (in_double_quote) {
+                // Already handled above
+                // (This branch will not be reached)
+            } else {
+                // In unquoted context, escape next character
+                escaped = true;
+            }
+        } else if (c == '\'' && !in_double_quote) {
+            in_single_quote = !in_single_quote;
+        } else if (c == '"' && !in_single_quote) {
+            in_double_quote = !in_double_quote;
+        } else if (std::isspace(c) && !in_single_quote && !in_double_quote) {
+            if (!current.empty()) {
+                args.push_back(current);
+                current.clear();
+            }
+        } else {
+            current += c;
+        }
+    }
+
+    if (!current.empty()) {
+        args.push_back(current);
+    }
+
+    return args;
+}
+
 ParsedCommand parseCommandWithRedirection(const std::string& input) {
     ParsedCommand result;
     result.has_redirection = false;
@@ -91,65 +150,6 @@ void restoreStdout(int original_stdout) {
         dup2(original_stdout, STDOUT_FILENO);
         close(original_stdout);
     }
-}
-
-std::vector<std::string> parseArgs(const std::string& input) {
-    std::vector<std::string> args;
-    std::string current;
-    bool in_single_quote = false;
-    bool in_double_quote = false;
-    bool escaped = false;
-
-    for (size_t i = 0; i < input.size(); ++i) {
-        char c = input[i];
-
-        // Special handling for backslash inside double quotes
-        if (in_double_quote && c == '\\') {
-            if (i + 1 < input.size() && (input[i + 1] == '\\' || input[i + 1] == '$' || input[i + 1] == '"' || input[i + 1] == '\n')) {
-                current += input[i + 1];
-                ++i;
-            } else {
-                current += '\\';
-            }
-            continue;
-        }
-        
-        if (escaped) {
-            current += c;
-            escaped = false;
-            continue;
-        }
-
-        if (c == '\\') {
-            if (in_single_quote) {
-                // In single quotes, backslash is treated as a literal character
-                current += c;
-            } else if (in_double_quote) {
-                // Already handled above
-                // (This branch will not be reached)
-            } else {
-                // In unquoted context, escape next character
-                escaped = true;
-            }
-        } else if (c == '\'' && !in_double_quote) {
-            in_single_quote = !in_single_quote;
-        } else if (c == '"' && !in_single_quote) {
-            in_double_quote = !in_double_quote;
-        } else if (std::isspace(c) && !in_single_quote && !in_double_quote) {
-            if (!current.empty()) {
-                args.push_back(current);
-                current.clear();
-            }
-        } else {
-            current += c;
-        }
-    }
-
-    if (!current.empty()) {
-        args.push_back(current);
-    }
-
-    return args;
 }
 
 int main() {
