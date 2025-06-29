@@ -103,6 +103,8 @@ struct ParsedCommand {
     bool has_stderr_redirection;
     bool has_append_redirection;
     bool has_stderr_append_redirection;
+    bool is_pipeline;
+    std::vector<std::vector<std::string>> pipeline_commands;
 };
 
 std::vector<std::string> parseArgs(const std::string& input) {
@@ -170,9 +172,37 @@ ParsedCommand parseCommandWithRedirection(const std::string& input) {
     result.has_stderr_redirection = false;
     result.has_append_redirection = false;
     result.has_stderr_append_redirection = false;
+    result.is_pipeline = false;
     
     std::vector<std::string> args = parseArgs(input);
     
+    // Check for pipeline first
+    for (size_t i = 0; i < args.size(); ++i) {
+        if (args[i] == "|") {
+            result.is_pipeline = true;
+            
+            // Split into pipeline commands
+            std::vector<std::string> current_command;
+            for (size_t j = 0; j < i; ++j) {
+                current_command.push_back(args[j]);
+            }
+            if (!current_command.empty()) {
+                result.pipeline_commands.push_back(current_command);
+            }
+            
+            current_command.clear();
+            for (size_t j = i + 1; j < args.size(); ++j) {
+                current_command.push_back(args[j]);
+            }
+            if (!current_command.empty()) {
+                result.pipeline_commands.push_back(current_command);
+            }
+            
+            return result;
+        }
+    }
+    
+    // No pipeline, check for redirection
     for (size_t i = 0; i < args.size(); ++i) {
         if (args[i] == ">" || args[i] == "1>") {
             if (i + 1 < args.size()) {
@@ -442,6 +472,176 @@ void restoreRedirection(const RedirectionState& state) {
     }
 }
 
+void executePipeline(const ParsedCommand& command) {
+    if (command.pipeline_commands.size() != 2) {
+        cerr << "Pipeline must have exactly 2 commands" << endl;
+        return;
+    }
+    
+    const auto& cmd1 = command.pipeline_commands[0];
+    const auto& cmd2 = command.pipeline_commands[1];
+    
+    if (cmd1.empty() || cmd2.empty()) {
+        cerr << "Pipeline commands cannot be empty" << endl;
+        return;
+    }
+    
+    // Create pipe
+    int pipefd[2];
+    if (pipe(pipefd) == -1) {
+        cerr << "Error creating pipe" << endl;
+        return;
+    }
+    
+    // Fork first child (left side of pipeline)
+    pid_t pid1 = fork();
+    if (pid1 == 0) {
+        // Child process 1
+        close(pipefd[0]); // Close read end
+        
+        // Redirect stdout to pipe write end
+        if (dup2(pipefd[1], STDOUT_FILENO) == -1) {
+            cerr << "Error redirecting stdout in pipeline" << endl;
+            exit(1);
+        }
+        close(pipefd[1]);
+        
+        // Execute first command
+        executeCommand(cmd1);
+        exit(1); // Should not reach here
+    } else if (pid1 < 0) {
+        cerr << "Error forking first process" << endl;
+        close(pipefd[0]);
+        close(pipefd[1]);
+        return;
+    }
+    
+    // Fork second child (right side of pipeline)
+    pid_t pid2 = fork();
+    if (pid2 == 0) {
+        // Child process 2
+        close(pipefd[1]); // Close write end
+        
+        // Redirect stdin from pipe read end
+        if (dup2(pipefd[0], STDIN_FILENO) == -1) {
+            cerr << "Error redirecting stdin in pipeline" << endl;
+            exit(1);
+        }
+        close(pipefd[0]);
+        
+        // Execute second command
+        executeCommand(cmd2);
+        exit(1); // Should not reach here
+    } else if (pid2 < 0) {
+        cerr << "Error forking second process" << endl;
+        close(pipefd[0]);
+        close(pipefd[1]);
+        kill(pid1, SIGTERM);
+        waitpid(pid1, nullptr, 0);
+        return;
+    }
+    
+    // Parent process
+    close(pipefd[0]);
+    close(pipefd[1]);
+    
+    // Wait for both children
+    int status1, status2;
+    waitpid(pid1, &status1, 0);
+    waitpid(pid2, &status2, 0);
+}
+
+void executeCommand(const std::vector<std::string>& args) {
+    if (args.empty()) {
+        return;
+    }
+    
+    string command_str = args[0];
+    
+    // Check if it's a builtin command
+    if (command_str == "echo") {
+        for (size_t i = 1; i < args.size(); ++i) {
+            cout << args[i];
+            if (i < args.size() - 1) {
+                cout << " ";
+            }
+        }
+        cout << endl;
+        exit(0);
+    } else if (command_str == "type") {
+        if (args.size() < 2) {
+            cout << "type: missing argument" << endl;
+            exit(1);
+        }
+        string target = args[1];
+        if (target == "echo" || target == "exit" || target == "type" || target == "pwd") {
+            cout << target << " is a shell builtin" << endl;
+        } else {
+            bool found = false;
+            char* path = getenv("PATH");
+            if (path != nullptr) {
+                string pathStr(path);
+                istringstream pathStream(pathStr);
+                string dir;
+                while (getline(pathStream, dir, ':')) {
+                    string fullPath = dir + "/" + target;
+                    if (access(fullPath.c_str(), X_OK) == 0) {
+                        cout << target << " is " << fullPath << endl;
+                        found = true;
+                        break;
+                    }
+                }
+            }
+            if (!found) {
+                cout << target << ": not found" << endl;
+            }
+        }
+        exit(0);
+    } else if (command_str == "pwd") {
+        char cwd[1024];
+        if (getcwd(cwd, sizeof(cwd)) != nullptr) {
+            cout << cwd << endl;
+        } else {
+            cout << "pwd: error getting current directory" << endl;
+        }
+        exit(0);
+    }
+    
+    // Try to execute as external command
+    char* path = getenv("PATH");
+    if (path == nullptr) {
+        cerr << command_str << ": command not found" << endl;
+        exit(1);
+    }
+
+    string pathStr(path);
+    istringstream pathStream(pathStr);
+    string dir;
+    bool found = false;
+
+    while (getline(pathStream, dir, ':')) {
+        string fullPath = dir + "/" + command_str;
+        if (access(fullPath.c_str(), X_OK) == 0) {
+            found = true;
+            
+            vector<char*> execArgs;
+            for (size_t i = 0; i < args.size(); ++i) {
+                execArgs.push_back(const_cast<char*>(args[i].c_str()));
+            }
+            execArgs.push_back(nullptr);
+            
+            execv(fullPath.c_str(), execArgs.data());
+            cerr << "Error executing " << command_str << endl;
+            exit(1);
+        }
+    }
+
+    if (!found) {
+        cerr << command_str << ": command not found" << endl;
+        exit(1);
+    }
+}
+
 int main() {
     // Set up readline autocompletion
     rl_attempted_completion_function = builtin_completion_generator;
@@ -470,7 +670,13 @@ int main() {
 
         ParsedCommand command = parseCommandWithRedirection(input);
 
-        if (command.args.empty()) {
+        if (command.args.empty() && command.pipeline_commands.empty()) {
+            continue;
+        }
+
+        // Handle pipelines
+        if (command.is_pipeline) {
+            executePipeline(command);
             continue;
         }
 
