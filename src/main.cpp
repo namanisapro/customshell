@@ -805,10 +805,6 @@ int main() {
                     for (int i = start; i < total_entries; ++i) {
                         file << the_list[i]->line << endl;
                     }
-                    // Add trailing newline (empty line) if any new entries were written
-                    if (total_entries > start) {
-                        file << endl;
-                    }
                     file.close();
                     last_appended_index[filename] = total_entries;
                 }
