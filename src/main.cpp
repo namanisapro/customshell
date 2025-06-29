@@ -813,8 +813,6 @@ int main() {
                             file << the_list[i]->line << endl;
                         }
                     }
-                    // Add trailing newline (empty line)
-                    file << endl;
                     file.close();
                 }
                 restoreRedirection(state);
