@@ -195,7 +195,14 @@ ParsedCommand parseCommandWithRedirection(const std::string& input) {
             
             current_command.clear();
             for (size_t j = i + 1; j < args.size(); ++j) {
-                current_command.push_back(args[j]);
+                if (args[j] == "|") {
+                    if (!current_command.empty()) {
+                        result.pipeline_commands.push_back(current_command);
+                        current_command.clear();
+                    }
+                } else {
+                    current_command.push_back(args[j]);
+                }
             }
             if (!current_command.empty()) {
                 result.pipeline_commands.push_back(current_command);
@@ -476,82 +483,82 @@ void restoreRedirection(const RedirectionState& state) {
 }
 
 void executePipeline(const ParsedCommand& command) {
-    if (command.pipeline_commands.size() != 2) {
-        cerr << "Pipeline must have exactly 2 commands" << endl;
+    int n = command.pipeline_commands.size();
+    if (n < 2) {
+        cerr << "Pipeline must have at least 2 commands" << endl;
         return;
     }
     
-    const auto& cmd1 = command.pipeline_commands[0];
-    const auto& cmd2 = command.pipeline_commands[1];
-    
-    if (cmd1.empty() || cmd2.empty()) {
-        cerr << "Pipeline commands cannot be empty" << endl;
-        return;
-    }
-    
-    // Create pipe
-    int pipefd[2];
-    if (pipe(pipefd) == -1) {
-        cerr << "Error creating pipe" << endl;
-        return;
-    }
-    
-    // Fork first child (left side of pipeline)
-    pid_t pid1 = fork();
-    if (pid1 == 0) {
-        // Child process 1
-        close(pipefd[0]); // Close read end
-        
-        // Redirect stdout to pipe write end
-        if (dup2(pipefd[1], STDOUT_FILENO) == -1) {
-            cerr << "Error redirecting stdout in pipeline" << endl;
-            exit(1);
+    // Create pipes for n-1 connections
+    std::vector<std::array<int, 2>> pipes(n - 1);
+    for (int i = 0; i < n - 1; ++i) {
+        if (pipe(pipes[i].data()) == -1) {
+            cerr << "Error creating pipe" << endl;
+            return;
         }
-        close(pipefd[1]);
-        
-        // Execute first command
-        executeCommand(cmd1);
-        exit(1); // Should not reach here
-    } else if (pid1 < 0) {
-        cerr << "Error forking first process" << endl;
-        close(pipefd[0]);
-        close(pipefd[1]);
-        return;
     }
     
-    // Fork second child (right side of pipeline)
-    pid_t pid2 = fork();
-    if (pid2 == 0) {
-        // Child process 2
-        close(pipefd[1]); // Close write end
-        
-        // Redirect stdin from pipe read end
-        if (dup2(pipefd[0], STDIN_FILENO) == -1) {
-            cerr << "Error redirecting stdin in pipeline" << endl;
-            exit(1);
+    std::vector<pid_t> pids;
+    
+    // Fork a process for each command
+    for (int i = 0; i < n; ++i) {
+        pid_t pid = fork();
+        if (pid == 0) {
+            // Child process
+            
+            // Set up stdin (read from previous pipe or shell stdin)
+            if (i > 0) {
+                if (dup2(pipes[i - 1][0], STDIN_FILENO) == -1) {
+                    cerr << "Error redirecting stdin in pipeline" << endl;
+                    exit(1);
+                }
+            }
+            
+            // Set up stdout (write to next pipe or shell stdout)
+            if (i < n - 1) {
+                if (dup2(pipes[i][1], STDOUT_FILENO) == -1) {
+                    cerr << "Error redirecting stdout in pipeline" << endl;
+                    exit(1);
+                }
+            }
+            
+            // Close all pipe file descriptors in child
+            for (int j = 0; j < n - 1; ++j) {
+                close(pipes[j][0]);
+                close(pipes[j][1]);
+            }
+            
+            // Execute the command
+            executeCommand(command.pipeline_commands[i]);
+            exit(1); // Should not reach here
+        } else if (pid < 0) {
+            cerr << "Error forking process " << i << endl;
+            // Clean up pipes and kill any already forked processes
+            for (int j = 0; j < n - 1; ++j) {
+                close(pipes[j][0]);
+                close(pipes[j][1]);
+            }
+            for (pid_t child_pid : pids) {
+                kill(child_pid, SIGTERM);
+                waitpid(child_pid, nullptr, 0);
+            }
+            return;
+        } else {
+            pids.push_back(pid);
         }
-        close(pipefd[0]);
-        
-        // Execute second command
-        executeCommand(cmd2);
-        exit(1); // Should not reach here
-    } else if (pid2 < 0) {
-        cerr << "Error forking second process" << endl;
-        close(pipefd[0]);
-        close(pipefd[1]);
-        kill(pid1, SIGTERM);
-        waitpid(pid1, nullptr, 0);
-        return;
     }
     
-    // Parent process
-    close(pipefd[0]);
-    close(pipefd[1]);
+    // Parent process - close all pipe file descriptors
+    for (int i = 0; i < n - 1; ++i) {
+        close(pipes[i][0]);
+        close(pipes[i][1]);
+    }
     
-    // Wait for both children
-    int status1, status2;
-    waitpid(pid1, &status1, 0);
-    waitpid(pid2, &status2, 0);
+    // Wait for all children to complete
+    for (pid_t pid : pids) {
+        int status;
+        waitpid(pid, &status, 0);
+    }
 }
 
 void executeCommand(const std::vector<std::string>& args) {
