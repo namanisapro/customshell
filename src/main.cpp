@@ -10,6 +10,7 @@
 #include <fcntl.h>
 #include <readline/readline.h>
 #include <readline/history.h>
+#include <dirent.h>
 
 using namespace std;
 
@@ -19,23 +20,65 @@ const vector<string> BUILTIN_COMMANDS = {"echo", "exit", "type", "pwd", "cd"};
 // Autocompletion function for readline
 char* builtin_completion(const char* text, int state) {
     static size_t list_index, len;
+    static vector<string> all_commands;
     const char* name;
     
     if (!state) {
         list_index = 0;
         len = strlen(text);
+        all_commands.clear();
+        
+        // Add builtin commands
+        for (const auto& cmd : BUILTIN_COMMANDS) {
+            if (strncmp(cmd.c_str(), text, len) == 0) {
+                all_commands.push_back(cmd);
+            }
+        }
+        
+        // Add external executables from PATH
+        char* path = getenv("PATH");
+        if (path != nullptr) {
+            string pathStr(path);
+            istringstream pathStream(pathStr);
+            string dir;
+            
+            while (getline(pathStream, dir, ':')) {
+                DIR* dirp = opendir(dir.c_str());
+                if (dirp != nullptr) {
+                    struct dirent* entry;
+                    while ((entry = readdir(dirp)) != nullptr) {
+                        string filename(entry->d_name);
+                        if (strncmp(filename.c_str(), text, len) == 0) {
+                            string fullPath = dir + "/" + filename;
+                            if (access(fullPath.c_str(), X_OK) == 0) {
+                                // Check if this executable is not already in the list
+                                bool found = false;
+                                for (const auto& existing : all_commands) {
+                                    if (existing == filename) {
+                                        found = true;
+                                        break;
+                                    }
+                                }
+                                if (!found) {
+                                    all_commands.push_back(filename);
+                                }
+                            }
+                        }
+                    }
+                    closedir(dirp);
+                }
+            }
+        }
     }
     
-    while (list_index < BUILTIN_COMMANDS.size()) {
-        name = BUILTIN_COMMANDS[list_index].c_str();
+    if (list_index < all_commands.size()) {
+        name = all_commands[list_index].c_str();
         list_index++;
         
-        if (strncmp(name, text, len) == 0) {
-            // Return a copy of the completed command without extra space
-            char* result = new char[strlen(name) + 1]; // +1 for null terminator
-            strcpy(result, name);
-            return result;
-        }
+        // Return a copy of the completed command without extra space
+        char* result = new char[strlen(name) + 1]; // +1 for null terminator
+        strcpy(result, name);
+        return result;
     }
     
     return nullptr;
