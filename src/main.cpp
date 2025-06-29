@@ -802,6 +802,25 @@ int main() {
                 continue;
             }
             
+            // Check for history -w <file> command
+            if (command.args.size() > 2 && command.args[1] == "-w") {
+                string filename = command.args[2];
+                ofstream file(filename);
+                if (file.is_open()) {
+                    HIST_ENTRY **the_list = history_list();
+                    if (the_list) {
+                        for (int i = 0; the_list[i]; ++i) {
+                            file << the_list[i]->line << endl;
+                        }
+                    }
+                    // Add trailing newline (empty line)
+                    file << endl;
+                    file.close();
+                }
+                restoreRedirection(state);
+                continue;
+            }
+            
             HIST_ENTRY **the_list = history_list();
             if (the_list) {
                 int total_entries = 0;
