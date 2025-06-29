@@ -18,6 +18,7 @@ struct ParsedCommand {
     bool has_redirection;
     bool has_stderr_redirection;
     bool has_append_redirection;
+    bool has_stderr_append_redirection;
 };
 
 std::vector<std::string> parseArgs(const std::string& input) {
@@ -84,6 +85,7 @@ ParsedCommand parseCommandWithRedirection(const std::string& input) {
     result.has_redirection = false;
     result.has_stderr_redirection = false;
     result.has_append_redirection = false;
+    result.has_stderr_append_redirection = false;
     
     std::vector<std::string> args = parseArgs(input);
     
@@ -102,6 +104,16 @@ ParsedCommand parseCommandWithRedirection(const std::string& input) {
             if (i + 1 < args.size()) {
                 result.error_file = args[i + 1];
                 result.has_stderr_redirection = true;
+                // Add all arguments before the redirection operator
+                for (size_t j = 0; j < i; ++j) {
+                    result.args.push_back(args[j]);
+                }
+                return result;
+            }
+        } else if (args[i] == "2>>") {
+            if (i + 1 < args.size()) {
+                result.error_file = args[i + 1];
+                result.has_stderr_append_redirection = true;
                 // Add all arguments before the redirection operator
                 for (size_t j = 0; j < i; ++j) {
                     result.args.push_back(args[j]);
@@ -168,6 +180,20 @@ void handleRedirection(const ParsedCommand& command) {
         }
         close(fd);
     }
+    
+    if (command.has_stderr_append_redirection) {
+        int fd = open(command.error_file.c_str(), O_WRONLY | O_CREAT | O_APPEND, 0644);
+        if (fd == -1) {
+            cerr << "Error opening file for stderr append redirection: " << command.error_file << endl;
+            exit(1);
+        }
+        // Redirect stderr to the file
+        if (dup2(fd, STDERR_FILENO) == -1) {
+            cerr << "Error redirecting stderr" << endl;
+            exit(1);
+        }
+        close(fd);
+    }
 }
 
 struct RedirectionState {
@@ -176,10 +202,11 @@ struct RedirectionState {
     bool has_stdout_redirection;
     bool has_stderr_redirection;
     bool has_append_redirection;
+    bool has_stderr_append_redirection;
     
     RedirectionState() : original_stdout(-1), original_stderr(-1), 
                         has_stdout_redirection(false), has_stderr_redirection(false),
-                        has_append_redirection(false) {}
+                        has_append_redirection(false), has_stderr_append_redirection(false) {}
 };
 
 RedirectionState handleBuiltinRedirection(const ParsedCommand& command) {
@@ -278,6 +305,45 @@ RedirectionState handleBuiltinRedirection(const ParsedCommand& command) {
         close(fd);
     }
     
+    if (command.has_stderr_append_redirection) {
+        state.has_stderr_append_redirection = true;
+        // Save original stderr
+        state.original_stderr = dup(STDERR_FILENO);
+        if (state.original_stderr == -1) {
+            cerr << "Error saving stderr" << endl;
+            if (state.original_stdout != -1) {
+                close(state.original_stdout);
+                state.original_stdout = -1;
+            }
+            return state;
+        }
+        
+        int fd = open(command.error_file.c_str(), O_WRONLY | O_CREAT | O_APPEND, 0644);
+        if (fd == -1) {
+            cerr << "Error opening file for stderr append redirection: " << command.error_file << endl;
+            if (state.original_stdout != -1) {
+                close(state.original_stdout);
+                state.original_stdout = -1;
+            }
+            close(state.original_stderr);
+            state.original_stderr = -1;
+            return state;
+        }
+        // Redirect stderr to the file
+        if (dup2(fd, STDERR_FILENO) == -1) {
+            cerr << "Error redirecting stderr" << endl;
+            close(fd);
+            if (state.original_stdout != -1) {
+                close(state.original_stdout);
+                state.original_stdout = -1;
+            }
+            close(state.original_stderr);
+            state.original_stderr = -1;
+            return state;
+        }
+        close(fd);
+    }
+    
     return state;
 }
 
@@ -286,7 +352,7 @@ void restoreRedirection(const RedirectionState& state) {
         dup2(state.original_stdout, STDOUT_FILENO);
         close(state.original_stdout);
     }
-    if (state.has_stderr_redirection && state.original_stderr != -1) {
+    if ((state.has_stderr_redirection || state.has_stderr_append_redirection) && state.original_stderr != -1) {
         dup2(state.original_stderr, STDERR_FILENO);
         close(state.original_stderr);
     }
@@ -316,7 +382,8 @@ int main() {
             // Check if there was an error during redirection setup
             if ((command.has_redirection && state.original_stdout == -1) || 
                 (command.has_append_redirection && state.original_stdout == -1) ||
-                (command.has_stderr_redirection && state.original_stderr == -1)) {
+                (command.has_stderr_redirection && state.original_stderr == -1) ||
+                (command.has_stderr_append_redirection && state.original_stderr == -1)) {
                 continue;
             }
             
@@ -334,7 +401,8 @@ int main() {
             // Check if there was an error during redirection setup
             if ((command.has_redirection && state.original_stdout == -1) || 
                 (command.has_append_redirection && state.original_stdout == -1) ||
-                (command.has_stderr_redirection && state.original_stderr == -1)) {
+                (command.has_stderr_redirection && state.original_stderr == -1) ||
+                (command.has_stderr_append_redirection && state.original_stderr == -1)) {
                 continue;
             }
             
@@ -373,7 +441,8 @@ int main() {
             // Check if there was an error during redirection setup
             if ((command.has_redirection && state.original_stdout == -1) || 
                 (command.has_append_redirection && state.original_stdout == -1) ||
-                (command.has_stderr_redirection && state.original_stderr == -1)) {
+                (command.has_stderr_redirection && state.original_stderr == -1) ||
+                (command.has_stderr_append_redirection && state.original_stderr == -1)) {
                 continue;
             }
             
