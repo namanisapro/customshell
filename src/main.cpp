@@ -282,7 +282,7 @@ RedirectionState handleBuiltinRedirection(const ParsedCommand& command) {
 }
 
 void restoreRedirection(const RedirectionState& state) {
-    if (state.has_stdout_redirection && state.original_stdout != -1) {
+    if ((state.has_stdout_redirection || state.has_append_redirection) && state.original_stdout != -1) {
         dup2(state.original_stdout, STDOUT_FILENO);
         close(state.original_stdout);
     }
