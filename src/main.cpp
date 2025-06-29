@@ -785,7 +785,29 @@ int main() {
             
             HIST_ENTRY **the_list = history_list();
             if (the_list) {
-                for (int i = 0; the_list[i]; ++i) {
+                int total_entries = 0;
+                while (the_list[total_entries]) {
+                    total_entries++;
+                }
+                
+                // Check if a number argument is provided
+                int limit = total_entries; // Default to showing all entries
+                if (command.args.size() > 1) {
+                    try {
+                        limit = stoi(command.args[1]);
+                        if (limit < 0) {
+                            limit = total_entries; // If negative, show all
+                        }
+                    } catch (const std::exception&) {
+                        limit = total_entries; // If invalid number, show all
+                    }
+                }
+                
+                // Calculate starting index to show last 'limit' entries
+                int start_index = total_entries - limit;
+                if (start_index < 0) start_index = 0;
+                
+                for (int i = start_index; i < total_entries; ++i) {
                     cout << "    " << (i + 1) << "  " << the_list[i]->line << endl;
                 }
             }
