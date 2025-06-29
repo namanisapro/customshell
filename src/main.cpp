@@ -12,6 +12,7 @@
 #include <readline/readline.h>
 #include <readline/history.h>
 #include <dirent.h>
+#include <fstream>
 
 using namespace std;
 
@@ -780,6 +781,24 @@ int main() {
                 (command.has_append_redirection && state.original_stdout == -1) ||
                 (command.has_stderr_redirection && state.original_stderr == -1) ||
                 (command.has_stderr_append_redirection && state.original_stderr == -1)) {
+                continue;
+            }
+            
+            // Check for history -r <file> command
+            if (command.args.size() > 2 && command.args[1] == "-r") {
+                string filename = command.args[2];
+                ifstream file(filename);
+                if (file.is_open()) {
+                    string line;
+                    while (getline(file, line)) {
+                        // Skip empty lines
+                        if (!line.empty()) {
+                            add_history(line.c_str());
+                        }
+                    }
+                    file.close();
+                }
+                restoreRedirection(state);
                 continue;
             }
             
