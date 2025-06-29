@@ -7,8 +7,91 @@
 #include <sys/wait.h>
 #include <sys/types.h>
 #include <cstring>
+#include <fcntl.h>
 
 using namespace std;
+
+struct ParsedCommand {
+    std::vector<std::string> args;
+    std::string output_file;
+    bool has_redirection;
+};
+
+ParsedCommand parseCommandWithRedirection(const std::string& input) {
+    ParsedCommand result;
+    result.has_redirection = false;
+    
+    std::vector<std::string> args = parseArgs(input);
+    
+    for (size_t i = 0; i < args.size(); ++i) {
+        if (args[i] == ">" || args[i] == "1>") {
+            if (i + 1 < args.size()) {
+                result.output_file = args[i + 1];
+                result.has_redirection = true;
+                // Add all arguments before the redirection operator
+                for (size_t j = 0; j < i; ++j) {
+                    result.args.push_back(args[j]);
+                }
+                return result;
+            }
+        }
+    }
+    
+    // No redirection found, return all arguments
+    result.args = args;
+    return result;
+}
+
+void handleRedirection(const ParsedCommand& command) {
+    if (command.has_redirection) {
+        int fd = open(command.output_file.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (fd == -1) {
+            cerr << "Error opening file for redirection: " << command.output_file << endl;
+            exit(1);
+        }
+        // Redirect stdout to the file
+        if (dup2(fd, STDOUT_FILENO) == -1) {
+            cerr << "Error redirecting stdout" << endl;
+            exit(1);
+        }
+        close(fd);
+    }
+}
+
+int handleBuiltinRedirection(const ParsedCommand& command) {
+    int original_stdout = -1;
+    if (command.has_redirection) {
+        // Save original stdout
+        original_stdout = dup(STDOUT_FILENO);
+        if (original_stdout == -1) {
+            cerr << "Error saving stdout" << endl;
+            return -1;
+        }
+        
+        int fd = open(command.output_file.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (fd == -1) {
+            cerr << "Error opening file for redirection: " << command.output_file << endl;
+            close(original_stdout);
+            return -1;
+        }
+        // Redirect stdout to the file
+        if (dup2(fd, STDOUT_FILENO) == -1) {
+            cerr << "Error redirecting stdout" << endl;
+            close(fd);
+            close(original_stdout);
+            return -1;
+        }
+        close(fd);
+    }
+    return original_stdout;
+}
+
+void restoreStdout(int original_stdout) {
+    if (original_stdout != -1) {
+        dup2(original_stdout, STDOUT_FILENO);
+        close(original_stdout);
+    }
+}
 
 std::vector<std::string> parseArgs(const std::string& input) {
     std::vector<std::string> args;
@@ -79,28 +162,42 @@ int main() {
             exit(0);
         }
 
-        vector<string> args = parseArgs(input);
+        ParsedCommand command = parseCommandWithRedirection(input);
 
-        if (args.empty()) {
+        if (command.args.empty()) {
             continue;
         }
 
-        string command = args[0];
+        string command_str = command.args[0];
 
-        if (command == "echo") {
-            for (size_t i = 1; i < args.size(); ++i) {
-                cout << args[i];
-                if (i < args.size() - 1) {
+        if (command_str == "echo") {
+            // Handle redirection for built-in commands
+            int original_stdout = handleBuiltinRedirection(command);
+            if (original_stdout == -1) {
+                continue;
+            }
+            
+            for (size_t i = 1; i < command.args.size(); ++i) {
+                cout << command.args[i];
+                if (i < command.args.size() - 1) {
                     cout << " ";
                 }
             }
             cout << endl;
-        } else if (command == "type") {
-            if (args.size() < 2) {
-                cout << "type: missing argument" << endl;
+            restoreStdout(original_stdout);
+        } else if (command_str == "type") {
+            // Handle redirection for built-in commands
+            int original_stdout = handleBuiltinRedirection(command);
+            if (original_stdout == -1) {
                 continue;
             }
-            string target = args[1];
+            
+            if (command.args.size() < 2) {
+                cout << "type: missing argument" << endl;
+                restoreStdout(original_stdout);
+                continue;
+            }
+            string target = command.args[1];
             if (target == "echo" || target == "exit" || target == "type" || target == "pwd") {
                 cout << target << " is a shell builtin" << endl;
             } else {
@@ -123,19 +220,27 @@ int main() {
                     cout << target << ": not found" << endl;
                 }
             }
-        } else if (command == "pwd") {
+            restoreStdout(original_stdout);
+        } else if (command_str == "pwd") {
+            // Handle redirection for built-in commands
+            int original_stdout = handleBuiltinRedirection(command);
+            if (original_stdout == -1) {
+                continue;
+            }
+            
             char cwd[1024];
             if (getcwd(cwd, sizeof(cwd)) != nullptr) {
                 cout << cwd << endl;
             } else {
                 cout << "pwd: error getting current directory" << endl;
             }
-        } else if (command == "cd") {
-            if (args.size() < 2) {
+            restoreStdout(original_stdout);
+        } else if (command_str == "cd") {
+            if (command.args.size() < 2) {
                 // No argument provided, do nothing for now (future stages may handle this)
                 continue;
             }
-            const std::string& dir = args[1];
+            const std::string& dir = command.args[1];
             if (dir == "~") {
                 char* home = getenv("HOME");
                 if (home == nullptr) {
@@ -154,7 +259,7 @@ int main() {
             // Try to execute as external command
             char* path = getenv("PATH");
             if (path == nullptr) {
-                cout << command << ": command not found" << endl;
+                cout << command_str << ": command not found" << endl;
                 continue;
             }
 
@@ -164,20 +269,24 @@ int main() {
             bool found = false;
 
             while (getline(pathStream, dir, ':')) {
-                string fullPath = dir + "/" + command;
+                string fullPath = dir + "/" + command_str;
                 if (access(fullPath.c_str(), X_OK) == 0) {
                     found = true;
                     pid_t pid = fork();
                     if (pid == 0) {
                         // Child process
+                        
+                        // Handle output redirection if specified
+                        handleRedirection(command);
+                        
                         vector<char*> execArgs;
-                        execArgs.push_back(const_cast<char*>(command.c_str()));  // Use command name instead of full path
-                        for (size_t i = 1; i < args.size(); ++i) {
-                            execArgs.push_back(const_cast<char*>(args[i].c_str()));
+                        execArgs.push_back(const_cast<char*>(command_str.c_str()));  // Use command name instead of full path
+                        for (size_t i = 1; i < command.args.size(); ++i) {
+                            execArgs.push_back(const_cast<char*>(command.args[i].c_str()));
                         }
                         execArgs.push_back(nullptr);
                         execv(fullPath.c_str(), execArgs.data());
-                        cerr << "Error executing " << command << endl;
+                        cerr << "Error executing " << command_str << endl;
                         exit(1);
                     } else if (pid > 0) {
                         // Parent process
@@ -189,7 +298,7 @@ int main() {
             }
 
             if (!found) {
-                cout << command << ": command not found" << endl;
+                cout << command_str << ": command not found" << endl;
             }
         }
     }
