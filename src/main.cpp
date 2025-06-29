@@ -686,6 +686,11 @@ int main() {
         add_history(input.c_str());
         
         if (input == "exit 0") {
+            // Save history to HISTFILE before exiting
+            char* histfile = getenv("HISTFILE");
+            if (histfile != nullptr) {
+                write_history(histfile);
+            }
             exit(0);
         }
 
