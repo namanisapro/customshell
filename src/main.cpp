@@ -623,17 +623,17 @@ void executeCommand(const std::vector<std::string>& args) {
             (command.has_append_redirection && state.original_stdout == -1) ||
             (command.has_stderr_redirection && state.original_stderr == -1) ||
             (command.has_stderr_append_redirection && state.original_stderr == -1)) {
+            restoreRedirection(state);
             continue;
         }
-        
         HIST_ENTRY **the_list = history_list();
         if (the_list) {
             for (int i = 0; the_list[i]; ++i) {
-                // Print 1-based index, matching bash style
                 cout << "    " << (i + 1) << "  " << the_list[i]->line << endl;
             }
         }
         restoreRedirection(state);
+        continue;
     }
     
     // Try to execute as external command
