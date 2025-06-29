@@ -8,8 +8,50 @@
 #include <sys/types.h>
 #include <cstring>
 #include <fcntl.h>
+#include <readline/readline.h>
+#include <readline/history.h>
 
 using namespace std;
+
+// Builtin commands for autocompletion
+const vector<string> BUILTIN_COMMANDS = {"echo", "exit", "type", "pwd", "cd"};
+
+// Autocompletion function for readline
+char* builtin_completion(const char* text, int state) {
+    static size_t list_index, len;
+    const char* name;
+    
+    if (!state) {
+        list_index = 0;
+        len = strlen(text);
+    }
+    
+    while (list_index < BUILTIN_COMMANDS.size()) {
+        name = BUILTIN_COMMANDS[list_index].c_str();
+        list_index++;
+        
+        if (strncmp(name, text, len) == 0) {
+            // Return a copy of the completed command with a space
+            char* result = new char[strlen(name) + 2]; // +2 for space and null terminator
+            strcpy(result, name);
+            strcat(result, " ");
+            return result;
+        }
+    }
+    
+    return nullptr;
+}
+
+// Function to generate completions
+char** builtin_completion_generator(const char* text, int start, int end) {
+    char** matches = nullptr;
+    
+    if (start == 0) {
+        matches = rl_completion_matches(text, builtin_completion);
+    }
+    
+    return matches;
+}
 
 struct ParsedCommand {
     std::vector<std::string> args;
@@ -359,11 +401,27 @@ void restoreRedirection(const RedirectionState& state) {
 }
 
 int main() {
+    // Set up readline autocompletion
+    rl_attempted_completion_function = builtin_completion_generator;
+    
     while (true) {
-        cout << "$ ";
-        string input;
-        getline(cin, input);
-
+        char* input_line = readline("$ ");
+        
+        if (input_line == nullptr) {
+            // EOF or Ctrl+D
+            break;
+        }
+        
+        string input(input_line);
+        free(input_line); // Free the memory allocated by readline
+        
+        if (input.empty()) {
+            continue;
+        }
+        
+        // Add to history if not empty
+        add_history(input.c_str());
+        
         if (input == "exit 0") {
             exit(0);
         }
