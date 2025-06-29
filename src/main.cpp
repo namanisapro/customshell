@@ -16,7 +16,7 @@
 using namespace std;
 
 // Builtin commands for autocompletion
-const vector<string> BUILTIN_COMMANDS = {"echo", "exit", "type", "pwd", "cd"};
+const vector<string> BUILTIN_COMMANDS = {"echo", "exit", "type", "pwd", "cd", "history"};
 
 // Forward declarations
 void executeCommand(const std::vector<std::string>& args);
@@ -585,7 +585,7 @@ void executeCommand(const std::vector<std::string>& args) {
             exit(1);
         }
         string target = args[1];
-        if (target == "echo" || target == "exit" || target == "type" || target == "pwd") {
+        if (target == "echo" || target == "exit" || target == "type" || target == "pwd" || target == "history") {
             cout << target << " is a shell builtin" << endl;
         } else {
             bool found = false;
@@ -616,6 +616,24 @@ void executeCommand(const std::vector<std::string>& args) {
             cout << "pwd: error getting current directory" << endl;
         }
         exit(0);
+    } else if (command_str == "history") {
+        // Handle redirection for built-in commands
+        RedirectionState state = handleBuiltinRedirection(command);
+        if ((command.has_redirection && state.original_stdout == -1) || 
+            (command.has_append_redirection && state.original_stdout == -1) ||
+            (command.has_stderr_redirection && state.original_stderr == -1) ||
+            (command.has_stderr_append_redirection && state.original_stderr == -1)) {
+            continue;
+        }
+        
+        HIST_ENTRY **the_list = history_list();
+        if (the_list) {
+            for (int i = 0; the_list[i]; ++i) {
+                // Print 1-based index, matching bash style
+                cout << "    " << (i + 1) << "  " << the_list[i]->line << endl;
+            }
+        }
+        restoreRedirection(state);
     }
     
     // Try to execute as external command
@@ -729,7 +747,7 @@ int main() {
                 continue;
             }
             string target = command.args[1];
-            if (target == "echo" || target == "exit" || target == "type" || target == "pwd") {
+            if (target == "echo" || target == "exit" || target == "type" || target == "pwd" || target == "history") {
                 cout << target << " is a shell builtin" << endl;
             } else {
                 bool found = false;
