@@ -124,21 +124,21 @@ int handleBuiltinRedirection(const ParsedCommand& command) {
         original_stdout = dup(STDOUT_FILENO);
         if (original_stdout == -1) {
             cerr << "Error saving stdout" << endl;
-            return -1;
+            return -2;
         }
         
         int fd = open(command.output_file.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
         if (fd == -1) {
             cerr << "Error opening file for redirection: " << command.output_file << endl;
             close(original_stdout);
-            return -1;
+            return -2;
         }
         // Redirect stdout to the file
         if (dup2(fd, STDOUT_FILENO) == -1) {
             cerr << "Error redirecting stdout" << endl;
             close(fd);
             close(original_stdout);
-            return -1;
+            return -2;
         }
         close(fd);
     }
@@ -173,7 +173,7 @@ int main() {
         if (command_str == "echo") {
             // Handle redirection for built-in commands
             int original_stdout = handleBuiltinRedirection(command);
-            if (original_stdout == -1) {
+            if (original_stdout == -2) {  // Error occurred
                 continue;
             }
             
@@ -188,7 +188,7 @@ int main() {
         } else if (command_str == "type") {
             // Handle redirection for built-in commands
             int original_stdout = handleBuiltinRedirection(command);
-            if (original_stdout == -1) {
+            if (original_stdout == -2) {  // Error occurred
                 continue;
             }
             
@@ -224,7 +224,7 @@ int main() {
         } else if (command_str == "pwd") {
             // Handle redirection for built-in commands
             int original_stdout = handleBuiltinRedirection(command);
-            if (original_stdout == -1) {
+            if (original_stdout == -2) {  // Error occurred
                 continue;
             }
             
