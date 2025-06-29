@@ -31,10 +31,9 @@ char* builtin_completion(const char* text, int state) {
         list_index++;
         
         if (strncmp(name, text, len) == 0) {
-            // Return a copy of the completed command with a space
-            char* result = new char[strlen(name) + 2]; // +2 for space and null terminator
+            // Return a copy of the completed command without extra space
+            char* result = new char[strlen(name) + 1]; // +1 for null terminator
             strcpy(result, name);
-            strcat(result, " ");
             return result;
         }
     }
