@@ -617,23 +617,7 @@ void executeCommand(const std::vector<std::string>& args) {
         }
         exit(0);
     } else if (command_str == "history") {
-        // Handle redirection for built-in commands
-        RedirectionState state = handleBuiltinRedirection(command);
-        if ((command.has_redirection && state.original_stdout == -1) || 
-            (command.has_append_redirection && state.original_stdout == -1) ||
-            (command.has_stderr_redirection && state.original_stderr == -1) ||
-            (command.has_stderr_append_redirection && state.original_stderr == -1)) {
-            restoreRedirection(state);
-            continue;
-        }
-        HIST_ENTRY **the_list = history_list();
-        if (the_list) {
-            for (int i = 0; the_list[i]; ++i) {
-                cout << "    " << (i + 1) << "  " << the_list[i]->line << endl;
-            }
-        }
-        restoreRedirection(state);
-        continue;
+        exit(0);
     }
     
     // Try to execute as external command
@@ -786,6 +770,24 @@ int main() {
                 cout << cwd << endl;
             } else {
                 cout << "pwd: error getting current directory" << endl;
+            }
+            restoreRedirection(state);
+        } else if (command_str == "history") {
+            // Handle redirection for built-in commands
+            RedirectionState state = handleBuiltinRedirection(command);
+            // Check if there was an error during redirection setup
+            if ((command.has_redirection && state.original_stdout == -1) || 
+                (command.has_append_redirection && state.original_stdout == -1) ||
+                (command.has_stderr_redirection && state.original_stderr == -1) ||
+                (command.has_stderr_append_redirection && state.original_stderr == -1)) {
+                continue;
+            }
+            
+            HIST_ENTRY **the_list = history_list();
+            if (the_list) {
+                for (int i = 0; the_list[i]; ++i) {
+                    cout << "    " << (i + 1) << "  " << the_list[i]->line << endl;
+                }
             }
             restoreRedirection(state);
         } else if (command_str == "cd") {
