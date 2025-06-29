@@ -14,7 +14,9 @@ using namespace std;
 struct ParsedCommand {
     std::vector<std::string> args;
     std::string output_file;
+    std::string error_file;
     bool has_redirection;
+    bool has_stderr_redirection;
 };
 
 std::vector<std::string> parseArgs(const std::string& input) {
@@ -79,6 +81,7 @@ std::vector<std::string> parseArgs(const std::string& input) {
 ParsedCommand parseCommandWithRedirection(const std::string& input) {
     ParsedCommand result;
     result.has_redirection = false;
+    result.has_stderr_redirection = false;
     
     std::vector<std::string> args = parseArgs(input);
     
@@ -87,6 +90,16 @@ ParsedCommand parseCommandWithRedirection(const std::string& input) {
             if (i + 1 < args.size()) {
                 result.output_file = args[i + 1];
                 result.has_redirection = true;
+                // Add all arguments before the redirection operator
+                for (size_t j = 0; j < i; ++j) {
+                    result.args.push_back(args[j]);
+                }
+                return result;
+            }
+        } else if (args[i] == "2>" || args[i] == "2>&1") {
+            if (i + 1 < args.size()) {
+                result.error_file = args[i + 1];
+                result.has_stderr_redirection = true;
                 // Add all arguments before the redirection operator
                 for (size_t j = 0; j < i; ++j) {
                     result.args.push_back(args[j]);
@@ -115,40 +128,112 @@ void handleRedirection(const ParsedCommand& command) {
         }
         close(fd);
     }
+    
+    if (command.has_stderr_redirection) {
+        int fd = open(command.error_file.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (fd == -1) {
+            cerr << "Error opening file for stderr redirection: " << command.error_file << endl;
+            exit(1);
+        }
+        // Redirect stderr to the file
+        if (dup2(fd, STDERR_FILENO) == -1) {
+            cerr << "Error redirecting stderr" << endl;
+            exit(1);
+        }
+        close(fd);
+    }
 }
 
-int handleBuiltinRedirection(const ParsedCommand& command) {
-    int original_stdout = -1;
+struct RedirectionState {
+    int original_stdout;
+    int original_stderr;
+    bool has_stdout_redirection;
+    bool has_stderr_redirection;
+    
+    RedirectionState() : original_stdout(-1), original_stderr(-1), 
+                        has_stdout_redirection(false), has_stderr_redirection(false) {}
+};
+
+RedirectionState handleBuiltinRedirection(const ParsedCommand& command) {
+    RedirectionState state;
+    
     if (command.has_redirection) {
+        state.has_stdout_redirection = true;
         // Save original stdout
-        original_stdout = dup(STDOUT_FILENO);
-        if (original_stdout == -1) {
+        state.original_stdout = dup(STDOUT_FILENO);
+        if (state.original_stdout == -1) {
             cerr << "Error saving stdout" << endl;
-            return -2;
+            return state;
         }
         
         int fd = open(command.output_file.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
         if (fd == -1) {
             cerr << "Error opening file for redirection: " << command.output_file << endl;
-            close(original_stdout);
-            return -2;
+            close(state.original_stdout);
+            state.original_stdout = -1;
+            return state;
         }
         // Redirect stdout to the file
         if (dup2(fd, STDOUT_FILENO) == -1) {
             cerr << "Error redirecting stdout" << endl;
             close(fd);
-            close(original_stdout);
-            return -2;
+            close(state.original_stdout);
+            state.original_stdout = -1;
+            return state;
         }
         close(fd);
     }
-    return original_stdout;
+    
+    if (command.has_stderr_redirection) {
+        state.has_stderr_redirection = true;
+        // Save original stderr
+        state.original_stderr = dup(STDERR_FILENO);
+        if (state.original_stderr == -1) {
+            cerr << "Error saving stderr" << endl;
+            if (state.original_stdout != -1) {
+                close(state.original_stdout);
+                state.original_stdout = -1;
+            }
+            return state;
+        }
+        
+        int fd = open(command.error_file.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (fd == -1) {
+            cerr << "Error opening file for stderr redirection: " << command.error_file << endl;
+            if (state.original_stdout != -1) {
+                close(state.original_stdout);
+                state.original_stdout = -1;
+            }
+            close(state.original_stderr);
+            state.original_stderr = -1;
+            return state;
+        }
+        // Redirect stderr to the file
+        if (dup2(fd, STDERR_FILENO) == -1) {
+            cerr << "Error redirecting stderr" << endl;
+            close(fd);
+            if (state.original_stdout != -1) {
+                close(state.original_stdout);
+                state.original_stdout = -1;
+            }
+            close(state.original_stderr);
+            state.original_stderr = -1;
+            return state;
+        }
+        close(fd);
+    }
+    
+    return state;
 }
 
-void restoreStdout(int original_stdout) {
-    if (original_stdout != -1) {
-        dup2(original_stdout, STDOUT_FILENO);
-        close(original_stdout);
+void restoreRedirection(const RedirectionState& state) {
+    if (state.has_stdout_redirection && state.original_stdout != -1) {
+        dup2(state.original_stdout, STDOUT_FILENO);
+        close(state.original_stdout);
+    }
+    if (state.has_stderr_redirection && state.original_stderr != -1) {
+        dup2(state.original_stderr, STDERR_FILENO);
+        close(state.original_stderr);
     }
 }
 
@@ -172,8 +257,10 @@ int main() {
 
         if (command_str == "echo") {
             // Handle redirection for built-in commands
-            int original_stdout = handleBuiltinRedirection(command);
-            if (original_stdout == -2) {  // Error occurred
+            RedirectionState state = handleBuiltinRedirection(command);
+            // Check if there was an error during redirection setup
+            if ((command.has_redirection && state.original_stdout == -1) || 
+                (command.has_stderr_redirection && state.original_stderr == -1)) {
                 continue;
             }
             
@@ -184,17 +271,19 @@ int main() {
                 }
             }
             cout << endl;
-            restoreStdout(original_stdout);
+            restoreRedirection(state);
         } else if (command_str == "type") {
             // Handle redirection for built-in commands
-            int original_stdout = handleBuiltinRedirection(command);
-            if (original_stdout == -2) {  // Error occurred
+            RedirectionState state = handleBuiltinRedirection(command);
+            // Check if there was an error during redirection setup
+            if ((command.has_redirection && state.original_stdout == -1) || 
+                (command.has_stderr_redirection && state.original_stderr == -1)) {
                 continue;
             }
             
             if (command.args.size() < 2) {
                 cout << "type: missing argument" << endl;
-                restoreStdout(original_stdout);
+                restoreRedirection(state);
                 continue;
             }
             string target = command.args[1];
@@ -220,11 +309,13 @@ int main() {
                     cout << target << ": not found" << endl;
                 }
             }
-            restoreStdout(original_stdout);
+            restoreRedirection(state);
         } else if (command_str == "pwd") {
             // Handle redirection for built-in commands
-            int original_stdout = handleBuiltinRedirection(command);
-            if (original_stdout == -2) {  // Error occurred
+            RedirectionState state = handleBuiltinRedirection(command);
+            // Check if there was an error during redirection setup
+            if ((command.has_redirection && state.original_stdout == -1) || 
+                (command.has_stderr_redirection && state.original_stderr == -1)) {
                 continue;
             }
             
@@ -234,7 +325,7 @@ int main() {
             } else {
                 cout << "pwd: error getting current directory" << endl;
             }
-            restoreStdout(original_stdout);
+            restoreRedirection(state);
         } else if (command_str == "cd") {
             if (command.args.size() < 2) {
                 // No argument provided, do nothing for now (future stages may handle this)
